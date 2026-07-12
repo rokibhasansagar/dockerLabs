@@ -13,13 +13,14 @@ RUN cp /etc/pacman.conf ./etc/pacman.conf && \
     cp -r /etc/pacman.d/gnupg ./etc/pacman.d/ 2>/dev/null || true
 
 # 3. Configure pacman to aggressively skip docs, man pages, and locales
-RUN sed -i 's|^#NoExtract.*|NoExtract = usr/share/help/* usr/share/gtk-doc/* usr/share/doc/* usr/share/man/* usr/share/info/* usr/share/locale/*|' /etc/pacman.conf
+RUN sed -i 's|^#NoExtract.*|NoExtract = usr/share/help/* usr/share/gtk-doc/* usr/share/doc/* usr/share/man/* usr/share/info/* usr/share/locale/*|' /etc/pacman.conf && \
+    sed -i '/^\[options\]/a DisableSandbox\nDisableSandboxNetwork' /etc/pacman.conf
 
 
 # 4. Bootstrap the balanced x86-64-v3 runtime
 # Replaced gcc-libs with explicit libstdc++, glibc, and libgcc.
 # Added practical on-the-go tools from 'base' and 'base-devel'.
-RUN pacman -Sy --root /rootfs --dbpath /rootfs/var/lib/pacman --noconfirm \
+RUN pacman -Sy --root /rootfs --config /rootfs/etc/pacman.conf --dbpath /rootfs/var/lib/pacman --noconfirm \
     filesystem \
     bash \
     coreutils \
@@ -93,12 +94,6 @@ ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
 
 # Set a custom shell prompt
 ENV PS1="\[\e[0;32m\]\u@archy\[\e[0m\] \[\e[0;32m\]\w\[\e[0m\]# "
-
-# Add "app" user with "sudo" access
-RUN useradd -G wheel -m -s /bin/bash app
-RUN echo -e "\n%wheel ALL=(ALL:ALL) NOPASSWD: ALL\napp   ALL=(ALL:ALL) NOPASSWD: ALL\n" | tee -a /etc/sudoers
-
-USER app
 
 # Ensure shell defaults to CachyOS optimized bash
 SHELL ["/usr/bin/bash", "-c"]
