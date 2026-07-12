@@ -3,24 +3,23 @@ FROM cachyos/cachyos-v3 AS builder
 
 WORKDIR /rootfs
 
-# 1. Setup minimal directory structure required by pacman
+# 1. Setup minimal directory structure required by pacman (Added etc/ssl for certs)
 RUN mkdir -p etc/pacman.d var/lib/pacman var/cache/pacman/pkg \
-    usr/bin usr/lib usr/share
+    usr/bin usr/lib usr/share etc/ssl
 
-# 2. Copy the optimized CachyOS repository configs and mirrorlists from the builder
-RUN cp /etc/pacman.conf ./etc/pacman.conf && \
-    cp -r /etc/pacman.d/* ./etc/pacman.d/ && \
-    cp -r /etc/pacman.d/gnupg ./etc/pacman.d/ 2>/dev/null || true
-
-# 3. Configure pacman to aggressively skip docs, man pages, and locales
+# 2. Configure pacman to aggressively skip docs, man pages, locales, and disable sandbox
 RUN sed -i 's|^#NoExtract.*|NoExtract = usr/share/help/* usr/share/gtk-doc/* usr/share/doc/* usr/share/man/* usr/share/info/* usr/share/locale/*|' /etc/pacman.conf && \
     sed -i '/^\[options\]/a DisableSandbox\nDisableSandboxNetwork' /etc/pacman.conf
 
+# 3. Copy configs, mirrorlists, and trust anchors (certificates) from the builder
+RUN cp /etc/pacman.conf ./etc/pacman.conf && \
+    cp -r /etc/pacman.d/* ./etc/pacman.d/ && \
+    cp -r /etc/pacman.d/gnupg ./etc/pacman.d/ 2>/dev/null || true && \
+    cp -r /etc/ssl/certs ./etc/ssl/ && \
+    cp -r /etc/ca-certificates ./etc/
 
-# 4. Bootstrap the balanced x86-64-v3 runtime
-# Replaced gcc-libs with explicit libstdc++, glibc, and libgcc.
-# Added practical on-the-go tools from 'base' and 'base-devel'.
-RUN pacman -Sy --root /rootfs --config /rootfs/etc/pacman.conf --dbpath /rootfs/var/lib/pacman --noconfirm \
+# 4. Bootstrap the balanced x86-64-v3 runtime (Added --overwrite '*' for cert replacement)
+RUN pacman -Sy --root /rootfs --config /rootfs/etc/pacman.conf --dbpath /rootfs/var/lib/pacman --noconfirm --overwrite '*' \
     filesystem \
     bash \
     coreutils \
@@ -64,14 +63,15 @@ RUN pacman -Sy --root /rootfs --config /rootfs/etc/pacman.conf --dbpath /rootfs/
 RUN chroot /rootfs /usr/bin/useradd -m -s /usr/bin/bash app && \
     echo "app ALL=(ALL:ALL) NOPASSWD: ALL" >> /rootfs/etc/sudoers
 
-# 6. Aggressive Cleanup & Pruning inside the new rootfs
+# 6. Aggressive Cleanup & Pruning inside the new rootfs (Added .pacnew cleanup)
 RUN rm -rf \
     /rootfs/var/cache/pacman/pkg/* \
     /rootfs/var/lib/pacman/sync/* \
-    /rootfs/usr/share/{man,doc,info,locale,gtk-doc}/* \
+    /rootfs/usr/share/{man,doc,info,locale,gtk-doc,help}/* \
     /rootfs/var/log/* \
     /rootfs/tmp/* \
-    /rootfs/var/tmp/*
+    /rootfs/var/tmp/* && \
+    find /rootfs/etc -name "*.pacnew" -type f -delete
 
 # ==============================================================================
 # STAGE 2: Balanced x86-64-v3 Runtime
