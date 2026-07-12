@@ -13,8 +13,8 @@ RUN cp /etc/pacman.conf ./etc/pacman.conf && \
     cp -r /etc/pacman.d/gnupg ./etc/pacman.d/ 2>/dev/null || true
 
 # 3. Configure pacman to aggressively skip docs, man pages, and locales
-RUN sed -i '/^#NoExtract/d' ./etc/pacman.conf && \
-    echo "NoExtract = usr/share/man/* usr/share/doc/* usr/share/locale/* usr/share/info/*" >> ./etc/pacman.conf
+RUN sed -i 's/#NoExtract  =/NoExtract  = usr\/share\/help\/* usr\/share\/gtk-doc\/* usr\/share\/doc\/* usr\/share\/man\/* usr\/share\/info\/*/ usr\/share\/locale\/*' /etc/pacman.conf
+
 
 # 4. Bootstrap the balanced x86-64-v3 runtime
 # Replaced gcc-libs with explicit libstdc++, glibc, and libgcc.
