@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1-labs
-FROM cachyos/cachyos:v3 AS builder
+FROM cachyos/cachyos-v3 AS builder
 
 WORKDIR /rootfs
 
