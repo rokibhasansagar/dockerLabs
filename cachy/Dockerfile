@@ -88,6 +88,12 @@ ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
 # Set a custom shell prompt
 ENV PS1="\[\e[0;32m\]\u@archy\[\e[0m\] \[\e[0;32m\]\w\[\e[0m\]# "
 
+# Add "app" user with "sudo" access
+RUN useradd -G wheel -m -s /bin/bash app
+RUN echo -e "\n%wheel ALL=(ALL:ALL) NOPASSWD: ALL\napp   ALL=(ALL:ALL) NOPASSWD: ALL\n" | tee -a /etc/sudoers
+
+USER app
+
 # Ensure shell defaults to CachyOS optimized bash
 SHELL ["/usr/bin/bash", "-c"]
 
