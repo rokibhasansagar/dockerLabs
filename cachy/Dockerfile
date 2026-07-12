@@ -55,9 +55,15 @@ RUN pacman -Sy --root /rootfs --dbpath /rootfs/var/lib/pacman --noconfirm \
     patch \
     pkgconf \
     binutils \
-    sudo
+    sudo \
+    shadow
 
-# 5. Aggressive Cleanup & Pruning inside the new rootfs
+# 5. Create 'app' user and configure password-less sudo
+# We use chroot to run useradd inside the newly created filesystem context.
+RUN chroot /rootfs /usr/bin/useradd -m -s /usr/bin/bash app && \
+    echo "app ALL=(ALL:ALL) NOPASSWD: ALL" >> /rootfs/etc/sudoers
+
+# 6. Aggressive Cleanup & Pruning inside the new rootfs
 RUN rm -rf \
     /rootfs/var/cache/pacman/pkg/* \
     /rootfs/var/lib/pacman/sync/* \
@@ -96,6 +102,10 @@ USER app
 
 # Ensure shell defaults to CachyOS optimized bash
 SHELL ["/usr/bin/bash", "-c"]
+
+# Switch to the non-root app user and set the home directory
+USER app
+WORKDIR /home/app
 
 # Default entry point
 CMD ["/usr/bin/bash"]
