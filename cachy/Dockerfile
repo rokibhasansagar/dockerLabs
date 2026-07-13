@@ -24,6 +24,8 @@ RUN pacman -Sy --root /rootfs --config /rootfs/etc/pacman.conf --dbpath /rootfs/
     bash \
     coreutils \
     pacman \
+    paru \
+    yay \
     cachyos-v3-mirrorlist \
     cachyos-mirrorlist \
     cachyos-keyring \
@@ -58,12 +60,16 @@ RUN pacman -Sy --root /rootfs --config /rootfs/etc/pacman.conf --dbpath /rootfs/
     sudo \
     shadow
 
-# 5. Create 'app' user and configure password-less sudo
+# 5. Initialize and populate the pacman keyring for the new filesystem
+RUN chroot /rootfs /usr/bin/pacman-key --init && \
+    chroot /rootfs /usr/bin/pacman-key --populate archlinux cachyos
+
+# 6. Create 'app' user and configure password-less sudo
 # We use chroot to run useradd inside the newly created filesystem context.
 RUN chroot /rootfs /usr/bin/useradd -m -s /usr/bin/bash app && \
     echo "app ALL=(ALL:ALL) NOPASSWD: ALL" >> /rootfs/etc/sudoers
 
-# 6. Aggressive Cleanup & Pruning inside the new rootfs (Added .pacnew cleanup)
+# 7. Aggressive Cleanup & Pruning inside the new rootfs (Added .pacnew cleanup)
 RUN rm -rf \
     /rootfs/var/cache/pacman/pkg/* \
     /rootfs/var/lib/pacman/sync/* \
