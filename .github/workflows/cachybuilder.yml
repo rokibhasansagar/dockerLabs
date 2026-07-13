@@ -93,7 +93,7 @@ jobs:
             maintainer="fr3akyphantom <rokibhasansagar2014@outlook.com>"
             org.opencontainers.image.authors="fr3akyphantom <rokibhasansagar2014@outlook.com>"
             org.opencontainers.image.licenses=MIT
-          outputs: type=registry
+          outputs: type=registry,oci-mediatypes=true,compression=estargz,compression-level=9,force-compression=true
       - name: Image digest (Native)
         run: echo ${{ steps.docker_build_native.outputs.digest }}
-        
+
