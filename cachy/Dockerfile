@@ -78,10 +78,6 @@ RUN rm -rf \
 # ==============================================================================
 FROM scratch
 
-# Metadata
-LABEL org.opencontainers.image.title="CachyOS x86-64-v3 Balanced Runtime" \
-      org.opencontainers.image.description="Practical, optimized x86-64-v3 CachyOS runtime with essential CLI and build utilities"
-
 # Copy the pruned filesystem from the builder stage
 COPY --from=builder /rootfs /
 
@@ -92,15 +88,15 @@ ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     ARCH=x86_64_v3 \
     HOSTNAME=archy
 
-# Set a custom shell prompt
-ENV PS1="\[\e[0;32m\]\u@archy\[\e[0m\] \[\e[0;32m\]\w\[\e[0m\]# "
-
 # Ensure shell defaults to CachyOS optimized bash
 SHELL ["/usr/bin/bash", "-c"]
 
 # Switch to the non-root app user and set the home directory
 USER app
 WORKDIR /home/app
+
+# Set a custom shell prompt
+ENV PS1="\[\e[0;32m\]\u@archy\[\e[0m\] \[\e[0;32m\]\w\[\e[0m\]# "
 
 # Default entry point
 CMD ["/usr/bin/bash"]

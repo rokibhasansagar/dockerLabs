@@ -11,7 +11,7 @@ on:
     - cron: '0 3 * * *'
 
 concurrency:
-  group: ci-base-${{ github.ref }}
+  group: cachy-base-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -66,7 +66,7 @@ jobs:
           echo "Flags:     ${{ steps.buildx.outputs.flags }}"
           echo "Platforms: ${{ steps.buildx.outputs.platforms }}"
       - name: Docker Metadata action
-        id: docker_meta_native
+        id: meta
         uses: docker/metadata-action@v6
         with:
           images: |
@@ -75,8 +75,14 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value={{date 'YY.MM.DDDD.HHmm' tz='Asia/Dhaka'}},enable=true
+          labels: |
+            maintainer="fr3akyphantom <rokibhasansagar2014@outlook.com>"
+            org.opencontainers.image.authors="fr3akyphantom <rokibhasansagar2014@outlook.com>"
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.title="CachyOS x86-64-v3 Balanced Runtime"
+            org.opencontainers.image.description="Practical, optimized x86-64-v3 CachyOS runtime with essential CLI and build utilities"
       - name: Build & Push the Docker image
-        id: docker_build_native
+        id: docker_build
         uses: docker/build-push-action@v7
         env:
           DOCKER_BUILD_SUMMARY: true
@@ -88,12 +94,10 @@ jobs:
           platforms: ${{ env.platform }}
           push: true
           provenance: false
-          tags: ${{ steps.docker_meta_native.outputs.tags }}
-          labels: |
-            maintainer="fr3akyphantom <rokibhasansagar2014@outlook.com>"
-            org.opencontainers.image.authors="fr3akyphantom <rokibhasansagar2014@outlook.com>"
-            org.opencontainers.image.licenses=MIT
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.labels }}
           outputs: type=registry,oci-mediatypes=true,compression=estargz,compression-level=9,force-compression=true
-      - name: Image digest (Native)
-        run: echo ${{ steps.docker_build_native.outputs.digest }}
+      - name: Image digest
+        run: echo ${{ steps.docker_build.outputs.digest }}
 
