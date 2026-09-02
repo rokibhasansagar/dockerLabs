@@ -1,25 +1,38 @@
 # syntax=docker/dockerfile:1-labs
 FROM cachyos/cachyos-v3 AS builder
 
-RUN sudo pacman -Syu --noconfirm --needed cachyos-rate-mirrors
+# 0. Initialize and populate the pacman keyring
+RUN pacman-key --init && \
+    pacman-key --populate archlinux cachyos
+
+# 1. Configure pacman to aggressively skip docs, locales, and disable sandbox
+RUN sed -i 's|^#NoExtract.*|NoExtract = usr/share/help/* usr/share/gtk-doc/* usr/share/doc/* usr/share/man/* usr/share/info/* usr/share/locale/*|' /etc/pacman.conf && \
+    sed -i '/^\[options\]/a DisableSandbox\nDisableSandboxNetwork' /etc/pacman.conf && \
+    echo 'PACMAN_OPTS=("--disable-sandbox")' >> /etc/makepkg.conf
+
+# 2. Setup minimal cachyos-rate-mirrors
+RUN pacman -Syu --noconfirm --needed cachyos-rate-mirrors base-devel git sudo && \
+    export RATE_MIRRORS_PROTOCOL=https \
+    RATE_MIRRORS_ALLOW_ROOT=true \
+    RATE_MIRRORS_DISABLE_COMMENTS=true \
+    RATE_MIRRORS_FETCH_MIRRORS_TIMEOUT=5000 \
+    RATE_MIRRORS_PER_MIRROR_TIMEOUT=5000 \
+    RATE_MIRRORS_MAX_MIRRORS_TO_OUTPUT=30 && \
+    rate-mirrors arch | tee /etc/pacman.d/mirrorlist
 
 WORKDIR /rootfs
 
-# 1. Setup minimal directory structure required by pacman (Added etc/ssl for certs)
+# 3. Setup minimal directory structure required by pacman
 RUN mkdir -p etc/pacman.d var/lib/pacman var/cache/pacman/pkg usr/bin usr/lib usr/share etc/ssl
 
-# 2. Configure pacman to aggressively skip docs, man pages, locales, and disable sandbox
-RUN sed -i 's|^#NoExtract.*|NoExtract = usr/share/help/* usr/share/gtk-doc/* usr/share/doc/* usr/share/man/* usr/share/info/* usr/share/locale/*|' /etc/pacman.conf && \
-    sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
-
-# 3. Copy configs, mirrorlists, and trust anchors (certificates) from the builder
+# 4. Copy configs, mirrorlists, and trust anchors (certificates) from the builder
 RUN cp /etc/pacman.conf ./etc/pacman.conf && \
     cp -r /etc/pacman.d/* ./etc/pacman.d/ && \
     cp -r /etc/pacman.d/gnupg ./etc/pacman.d/ 2>/dev/null || true && \
     cp -r /etc/ssl/certs ./etc/ssl/ && \
     cp -r /etc/ca-certificates ./etc/
 
-# 4. Bootstrap the balanced x86-64-v3 runtime (Added --overwrite '*' for cert replacement)
+# 5. Bootstrap the balanced x86-64-v3 runtime
 RUN pacman -Sy --root /rootfs --config /rootfs/etc/pacman.conf --dbpath /rootfs/var/lib/pacman --noconfirm --overwrite '*' \
     filesystem \
     bash \
@@ -61,29 +74,15 @@ RUN pacman -Sy --root /rootfs --config /rootfs/etc/pacman.conf --dbpath /rootfs/
     patch \
     pkgconf \
     binutils \
+    fakeroot \
     sudo \
     shadow
 
-# 5. Initialize and populate the pacman keyring for the new filesystem
-RUN chroot /rootfs /usr/bin/pacman-key --init && \
-    chroot /rootfs /usr/bin/pacman-key --populate archlinux cachyos
-
-# 5.xyz: Various fixes
-RUN mkdir -p zlib-ng-compat-git && \
-    cd zlib-ng-compat-git && \
-    curl -sLO "https://raw.githubusercontent.com/rokibhasansagar/Arch_PKGBUILDs/refs/heads/main/zlib-ng-compat-git/PKGBUILD" && \
-    chroot /rootfs /usr/bin/paru -Ui --noconfirm --needed --skipreview --noprovides --useask --combinedupgrade --batchinstall --noinstalldebug --removemake --nocleanafter --nokeepsrc --mflags="--force" --rebuild && \
-    cd .. && \
-    rm -rf ./zlib-ng-compat-git && \
-    zlibng_ver="1:1.3.2-3.1" && \
-    sed -i '/^#AssumeInstalled/c\AssumeInstalled = zlib='"${zlibng_ver}"'' /etc/pacman.conf
-
 # 6. Create 'app' user and configure password-less sudo
-# We use chroot to run useradd inside the newly created filesystem context.
 RUN chroot /rootfs /usr/bin/useradd -m -s /usr/bin/bash app && \
     echo "app ALL=(ALL:ALL) NOPASSWD: ALL" >> /rootfs/etc/sudoers
 
-# 7. Aggressive Cleanup & Pruning inside the new rootfs (Added .pacnew cleanup)
+# 7. Aggressive Cleanup & Pruning inside the new rootfs
 RUN rm -rf \
     /rootfs/var/cache/pacman/pkg/* \
     /rootfs/var/lib/pacman/sync/* \
@@ -98,26 +97,43 @@ RUN rm -rf \
 # ==============================================================================
 FROM scratch
 
-# Copy the pruned filesystem from the builder stage
+# 1. Copy the pruned filesystem from the builder stage
 COPY --from=builder /rootfs /
 
-# Set essential environment variables
+# 2. Set essential environment variables
 ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     ARCH=x86_64_v3 \
     HOSTNAME=archy
 
-# Ensure shell defaults to CachyOS optimized bash
+# 3. Ensure shell defaults to CachyOS optimized bash
 SHELL ["/usr/bin/bash", "-c"]
 
-# Switch to the non-root app user and set the home directory
+# 4. Switch to the non-root app user and set the home directory
 USER app
 WORKDIR /home/app
 
-# Set a custom shell prompt
+# 5. Set a custom shell prompt
 ENV PS1="\[\e[0;32m\]\u@archy\[\e[0m\] \[\e[0;32m\]\w\[\e[0m\]# "
 
-# Default entry point
+# 6. Build zlib-ng-compat-git and replace core:zlib
+RUN sudo pacman -Sy --noconfirm && \
+    mkdir -p zlibng && \
+    cd zlibng && \
+    curl -sLO 'https://raw.githubusercontent.com/rokibhasansagar/Arch_PKGBUILDs/refs/heads/main/zlib-ng-compat-git/PKGBUILD' && \
+    makepkg -sri --noconfirm && \
+    cd .. && \
+    zlibng_ver=$(pacman -Q zlib | awk '{print $2}') && \
+    sudo sed -i '/^HoldPkg\s*=/ s/$/ zlib/' /etc/pacman.conf && \
+    sudo sed -i '/^#IgnorePkg/c\IgnorePkg = zlib' /etc/pacman.conf && \
+    sudo sed -i '/^#AssumeInstalled/c\AssumeInstalled = zlib='"${zlibng_ver}"'' /etc/pacman.conf && \
+    sudo rm -rf ./zlibng /var/lib/pacman/sync/* /var/cache/pacman/pkg/*
+
+# 7. List installed packages for debug purpose
+RUN echo -e "[+] PreInstalled Packages:" && \
+    sudo pacman -Q 2>/dev/null
+
+# 8. Default entry point
 CMD ["/usr/bin/bash"]
 
