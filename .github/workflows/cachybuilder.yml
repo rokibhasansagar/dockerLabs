@@ -57,7 +57,9 @@ jobs:
         with:
           buildkitd-config-inline: |
             [worker.oci]
-              max-parallelism = 4
+              max-parallelism = 3
+            [entitlements]
+              security_insecure = true
       - name: Inspect builder
         run: |
           echo "Name:      ${{ steps.buildx.outputs.name }}"
