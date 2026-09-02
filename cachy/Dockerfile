@@ -1,11 +1,12 @@
 # syntax=docker/dockerfile:1-labs
 FROM cachyos/cachyos-v3 AS builder
 
+RUN sudo pacman -Syu --noconfirm --needed cachyos-rate-mirrors
+
 WORKDIR /rootfs
 
 # 1. Setup minimal directory structure required by pacman (Added etc/ssl for certs)
-RUN mkdir -p etc/pacman.d var/lib/pacman var/cache/pacman/pkg \
-    usr/bin usr/lib usr/share etc/ssl
+RUN mkdir -p etc/pacman.d var/lib/pacman var/cache/pacman/pkg usr/bin usr/lib usr/share etc/ssl
 
 # 2. Configure pacman to aggressively skip docs, man pages, locales, and disable sandbox
 RUN sed -i 's|^#NoExtract.*|NoExtract = usr/share/help/* usr/share/gtk-doc/* usr/share/doc/* usr/share/man/* usr/share/info/* usr/share/locale/*|' /etc/pacman.conf && \
@@ -23,6 +24,7 @@ RUN pacman -Sy --root /rootfs --config /rootfs/etc/pacman.conf --dbpath /rootfs/
     filesystem \
     bash \
     coreutils \
+    git \
     pacman \
     paru \
     yay \
@@ -30,6 +32,7 @@ RUN pacman -Sy --root /rootfs --config /rootfs/etc/pacman.conf --dbpath /rootfs/
     cachyos-mirrorlist \
     cachyos-keyring \
     archlinux-keyring \
+    cachyos-rate-mirrors \
     glibc \
     libstdc++ \
     libgcc \
@@ -41,6 +44,7 @@ RUN pacman -Sy --root /rootfs --config /rootfs/etc/pacman.conf --dbpath /rootfs/
     procps-ng \
     util-linux \
     tar \
+    unzip \
     gzip \
     bzip2 \
     xz \
@@ -63,6 +67,16 @@ RUN pacman -Sy --root /rootfs --config /rootfs/etc/pacman.conf --dbpath /rootfs/
 # 5. Initialize and populate the pacman keyring for the new filesystem
 RUN chroot /rootfs /usr/bin/pacman-key --init && \
     chroot /rootfs /usr/bin/pacman-key --populate archlinux cachyos
+
+# 5.xyz: Various fixes
+RUN mkdir -p zlib-ng-compat-git && \
+    cd zlib-ng-compat-git && \
+    curl -sLO "https://raw.githubusercontent.com/rokibhasansagar/Arch_PKGBUILDs/refs/heads/main/zlib-ng-compat-git/PKGBUILD" && \
+    chroot /rootfs /usr/bin/paru -Ui --noconfirm --needed --skipreview --noprovides --useask --combinedupgrade --batchinstall --noinstalldebug --removemake --nocleanafter --nokeepsrc --mflags="--force" --rebuild && \
+    cd .. && \
+    rm -rf ./zlib-ng-compat-git && \
+    zlibng_ver="1:1.3.2-3.1" && \
+    sed -i '/^#AssumeInstalled/c\AssumeInstalled = zlib='"${zlibng_ver}"'' /etc/pacman.conf
 
 # 6. Create 'app' user and configure password-less sudo
 # We use chroot to run useradd inside the newly created filesystem context.
