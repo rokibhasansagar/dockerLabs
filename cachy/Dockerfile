@@ -9,7 +9,7 @@ RUN mkdir -p etc/pacman.d var/lib/pacman var/cache/pacman/pkg \
 
 # 2. Configure pacman to aggressively skip docs, man pages, locales, and disable sandbox
 RUN sed -i 's|^#NoExtract.*|NoExtract = usr/share/help/* usr/share/gtk-doc/* usr/share/doc/* usr/share/man/* usr/share/info/* usr/share/locale/*|' /etc/pacman.conf && \
-    sed -i '/^\[options\]/a DisableSandbox\nDisableSandboxNetwork' /etc/pacman.conf
+    sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
 
 # 3. Copy configs, mirrorlists, and trust anchors (certificates) from the builder
 RUN cp /etc/pacman.conf ./etc/pacman.conf && \
