@@ -1,0 +1,210 @@
+name: Reusable Docker Builder
+
+on:
+  workflow_call:
+    inputs:
+      target_cpu:
+        description: 'Force hunt for specific CPU'
+        type: string
+        required: false
+      docker_id:
+        description: 'The name of the image (e.g., cachy-base)'
+        type: string
+        required: true
+      build_context:
+        description: 'The subfolder for the Docker context'
+        type: string
+        required: true
+      title_suffix:
+        description: 'Appended to the image title label'
+        type: string
+        required: true
+      desc_suffix:
+        description: 'Appended to the image description label'
+        type: string
+        required: true
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: true
+
+jobs:
+  builder:
+    strategy:
+      matrix:
+        runner: [1, 2, 3, 4, 5, 6, 7]
+      fail-fast: false
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      actions: write
+
+    steps:
+      - name: Detect Runner CPU
+        id: cpu
+        run: |
+          # Execute ld.so
+          if /lib64/ld-linux-x86-64.so.2 --help | grep -q 'x86-64-v4 (supported, searched)'; then
+            TARGET="v4"
+          else
+            TARGET="v3"
+          fi
+          ARCH="x86_64_$TARGET"
+          echo "TARGET=$TARGET" >> $GITHUB_ENV
+          echo "ARCH=$ARCH" >> $GITHUB_ENV
+          # Print Machine and CPU info
+          echo "Detected Runner CPU -> $ARCH"
+          echo "Detected Machine -> $(grep "model name" /proc/cpuinfo | head -n 1 | awk -F '\t: ' '{print $2}')"
+
+      - name: Verify Targeted Retry
+        id: check_target
+        run: |
+          TARGETED_CPU="${{ inputs.target_cpu }}"
+          if [[ -n "$TARGETED_CPU" && "$TARGETED_CPU" != "${{ env.TARGET }}" ]]; then
+             echo "Watchdog retry requested $TARGETED_CPU, but got ${{ env.TARGET }}. Exiting."
+             echo "proceed=false" >> $GITHUB_OUTPUT
+          else
+             echo "proceed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check Existing Locks (Staggered)
+        id: check_existing
+        if: steps.check_target.outputs.proceed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Simplified inverted parabola mapping values precisely from 0.1s to 10.0s
+          RUNNER=${{ matrix.runner }}
+          DELAY=$(awk "BEGIN { printf \"%.1f\", 10 - (7 - $RUNNER)^2 / 3.64 }")
+          echo "Staggering API check by $DELAY seconds to allow faster jobs to sync..."
+          sleep $DELAY
+          echo "Querying GitHub API for existing locks in this workflow run..."
+          ARTIFACTS=$(gh api /repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts --jq '.artifacts[].name' || echo "")
+          if echo "$ARTIFACTS" | grep -q "lock-${{ env.TARGET }}"; then
+            echo "Lock for ${{ env.TARGET }} already exists! Gracefully aborting before upload."
+            echo "proceed=false" >> $GITHUB_OUTPUT
+          else
+            echo "Lock for ${{ env.TARGET }} not found. Proceeding to claim..."
+            echo "proceed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Lock File
+        if: steps.check_existing.outputs.proceed == 'true'
+        run: echo "locked" > lock-${{ env.TARGET }}.txt
+
+      - name: Attempt Artifact Lock
+        id: lock
+        if: steps.check_existing.outputs.proceed == 'true'
+        uses: actions/upload-artifact@v7
+        continue-on-error: true
+        with:
+          name: lock-${{ env.TARGET }}
+          path: lock-${{ env.TARGET }}.txt
+          overwrite: false
+          retention-days: 2
+
+      - name: Checkout Repo
+        if: steps.lock.outcome == 'success'
+        uses: actions/checkout@v7
+        with:
+          ref: "main"
+          show-progress: false
+
+      - name: Login to Docker Hub
+        if: steps.lock.outcome == 'success'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to GHCR
+        if: steps.lock.outcome == 'success'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: steps.lock.outcome == 'success'
+        uses: docker/setup-buildx-action@v4
+        with:
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 2
+            [entitlements]
+              security_insecure = true
+
+      - name: Docker Metadata action
+        if: steps.lock.outcome == 'success'
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            ${{ vars.DOCKERHUB_USERNAME }}/${{ inputs.docker_id }}-${{ env.TARGET }}
+            ghcr.io/${{ github.repository_owner }}/${{ inputs.docker_id }}-${{ env.TARGET }}
+          tags: |
+            type=raw,value=latest,enable=true
+            type=raw,value={{date 'YY.MM.DDDD.HH' tz='Asia/Dhaka'}},enable=true
+          labels: |
+            maintainer="fr3akyphantom <rokibhasansagar2014@outlook.com>"
+            org.opencontainers.image.authors="fr3akyphantom <rokibhasansagar2014@outlook.com>"
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.title="CachyOS ${{ env.ARCH }} ${{ inputs.title_suffix }}"
+            org.opencontainers.image.description="Practical, Optimized CachyOS ${{ env.ARCH }} ${{ inputs.desc_suffix }}"
+
+      - name: Build & Push the ${{ env.ARCH }} Docker image
+        if: steps.lock.outcome == 'success'
+        uses: docker/build-push-action@v7
+        env:
+          DOCKER_BUILD_SUMMARY: true
+          DOCKER_BUILD_RECORD_UPLOAD: true
+        with:
+          allow: security.insecure
+          context: "{{defaultContext}}:${{ inputs.build_context }}"
+          file: Dockerfile
+          platforms: "linux/amd64"
+          push: true
+          provenance: false
+          build-args: |
+            TARGET=${{ env.TARGET }}
+            ARCH=${{ env.ARCH }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.labels }}
+          outputs: type=registry,oci-mediatypes=true,compression=estargz,compression-level=9,force-compression=true
+
+  watchdog:
+    needs: builder
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Evaluate Locks and Trigger Retry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Checking locks for workflow run: ${{ github.run_id }}"
+          ARTIFACTS=$(gh api /repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts --jq '.artifacts[].name' || echo "")
+          V3_LOCKED="false"
+          V4_LOCKED="false"
+          if echo "$ARTIFACTS" | grep -q "lock-v3"; then V3_LOCKED="true"; fi
+          if echo "$ARTIFACTS" | grep -q "lock-v4"; then V4_LOCKED="true"; fi
+          echo "V3 Tier Built: $V3_LOCKED"
+          echo "V4 Tier Built: $V4_LOCKED"
+          if [[ -n "${{ inputs.target_cpu }}" ]]; then
+            echo "This was a targeted retry. Exiting watchdog."
+            exit 0
+          fi
+          # Dynamic trigger using github.workflow (injects "CachyOS CI" or "Architect CI")
+          if [[ "$V3_LOCKED" == "false" ]]; then
+            echo "⚠️ v3 runner not secured. Triggering targeted retry..."
+            gh workflow run "${{ github.workflow }}" -f target_cpu=v3
+          fi
+          if [[ "$V4_LOCKED" == "false" ]]; then
+            echo "⚠️ v4 runner not secured. Triggering targeted retry..."
+            gh workflow run "${{ github.workflow }}" -f target_cpu=v4
+          fi
+

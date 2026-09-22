@@ -1,0 +1,38 @@
+name: Architect CI
+
+run-name: >
+  ${{ github.event_name == 'schedule' && '🕒 Scheduled Architect Build' || 
+      github.event.inputs.target_cpu && format('🎯 Targeted Retry ({0}) for Architect', github.event.inputs.target_cpu) || 
+      '🏗️ Standard Architect Build' }}
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'architect/Dockerfile' ]
+  workflow_dispatch:
+    inputs:
+      target_cpu:
+        description: 'Hunt for specific CPU'
+        required: false
+        type: choice
+        options: ['', 'v3', 'v4']
+  schedule:
+    # Runs Everyday at 04:00 UTC
+    - cron: '0 4 * * *'
+
+concurrency:
+  group: architect-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+jobs:
+  launch-pipeline:
+    uses: ./.github/workflows/reusable-builder.yml
+    with:
+      target_cpu: ${{ inputs.target_cpu }}
+      docker_id: "architect"
+      build_context: "architect"
+      title_suffix: "Development Environment"
+      desc_suffix: "Runtime for Media Encoding On-The-Go"
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
