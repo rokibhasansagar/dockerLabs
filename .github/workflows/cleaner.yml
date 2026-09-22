@@ -1,0 +1,32 @@
+name: Workflow Cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs_older_than:
+        description: "Days old to delete"
+        type: choice
+        options: ["8", "5", "3"]
+        default: "8"
+  schedule:
+    # Runs on the 2nd, 9th, 16th and 24th of the month at 02:00 UTC for log cleanup
+    - cron: '0 2 2,9,16,24 * *'
+
+jobs:
+  cleaner:
+    name: Workflow Cleaner
+    runs-on: ubuntu-latest
+
+    permissions:
+      actions: write
+
+    env:
+      SCHEDULED_RUNS_OLDER_THAN: "8"
+
+    steps:
+      - name: Clean
+        uses: igorjs/gh-actions-clean-workflow@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          runs_older_than: ${{ github.event.inputs.runs_older_than || env.SCHEDULED_RUNS_OLDER_THAN }}
+
